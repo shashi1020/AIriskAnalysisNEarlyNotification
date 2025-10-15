@@ -1,0 +1,35 @@
+domain_weights:
+  weather: 0.4
+  crime: 0.35
+  fraud: 0.25
+
+severity_thresholds:
+  critical: 0.85
+  warning: 0.65
+  watch: 0.45
+  info: 0.0
+
+required_corroboration: 2
+
+auto_escalation_enabled: true
+
+auto_escalation_confidence: 0.85
+
+dedupe_radius_meters: 1000
+
+dedupe_window_minutes: 30
+
+rate_limit_per_org: 100
+
+notification_preferences:
+  critical:
+    - fcm
+    - sms
+    - webhook
+  warning:
+    - fcm
+    - webhook
+  watch:
+    - fcm
+  info:
+    - fcm
