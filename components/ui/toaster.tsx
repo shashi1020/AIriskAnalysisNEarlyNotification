@@ -1,6 +1,6 @@
 'use client';
 
-import { useToast } from '@/hooks/useCrimeDetections';
+import { useToast } from '@/hooks/useRealtimeAlerts';
 import {
   Toast,
   ToastClose,

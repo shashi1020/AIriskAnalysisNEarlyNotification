@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { Shield, AlertTriangle, MapPin, Clock, Flag, TrendingUp, Activity, Zap } from "lucide-react"
+import { Shield, AlertTriangle, MapPin, Flag, TrendingUp, Activity, Zap } from "lucide-react"
+import { toast, Toaster, Toast } from "react-hot-toast"
+import { collection, query, orderBy, onSnapshot, DocumentData } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
 const LEVEL_ORDER = ["critical", "warning", "watch", "info"] as const
 type Level = (typeof LEVEL_ORDER)[number]
@@ -41,20 +44,33 @@ function Sparkline({ values = [], width = 80, height = 24 }: { values?: number[]
   )
 }
 
+// Realtime alert type
+interface RealtimeAlert {
+  id: string
+  camera_id?: number
+  confidence?: number
+  image_url: string
+  summary: string
+  timestamp: string
+  weapon_type?: string
+  bbox?: number[]
+}
+
 export default function Home() {
   const [alerts, setAlerts] = useState<any[]>([
     { id: 1, primary_type: "Fraud Alert", location: { name: "Delhi" }, final_score: 0.92, status: "active", created_at: new Date(), evidence: [{ source: "Financial Monitoring" }], recommended_action: "Immediate investigation required" },
     { id: 2, primary_type: "Crime Report", location: { name: "Mumbai" }, final_score: 0.78, status: "acknowledged", created_at: new Date(Date.now() - 3600000), evidence: [{ source: "Police Database" }], recommended_action: "Coordinate with local authorities" },
     { id: 3, primary_type: "Weather Advisory", location: { name: "Chennai" }, final_score: 0.65, status: "active", created_at: new Date(Date.now() - 7200000), evidence: [{ source: "Met Department" }], recommended_action: "Public warning issued" },
   ])
-  
+
   const [metrics, setMetrics] = useState<any>({
     alerts_count: 42,
     alerts_by_severity: { info: 18, watch: 12, warning: 8, critical: 4 },
     additional: { sparkline: [0.3, 0.4, 0.35, 0.65, 0.72, 0.81, 0.88, 0.85, 0.92] }
   })
   const [loading, setLoading] = useState(false)
-  const [regions, setRegions] = useState([
+  const [lastUpdated, setLastUpdated] = useState(new Date())
+  const [regions] = useState([
     { id: "1", name: "All Regions" },
     { id: "2", name: "North India" },
     { id: "3", name: "South India" },
@@ -62,13 +78,62 @@ export default function Home() {
   ])
   const [selectedRegion, setSelectedRegion] = useState("1")
   const [timeframe, setTimeframe] = useState("24h")
-  const [lastUpdated, setLastUpdated] = useState(new Date())
 
   const totalAlerts = metrics?.alerts_count ?? 0
   const levelEntries = useMemo(() => {
     const by = metrics?.alerts_by_severity ?? { info: 0, watch: 0, warning: 0, critical: 0 }
     return LEVEL_ORDER.map((lvl) => ({ level: lvl as Level, count: (by as any)[lvl] || 0 }))
   }, [metrics])
+
+  // --- Real-time Firestore Alerts Hook ---
+  useEffect(() => {
+    const alertsRef = new Set<string>()
+    const alertsCollection = collection(db, "alerts")
+    const q = query(alertsCollection, orderBy("timestamp", "desc"))
+    const unsubscribe = onSnapshot(q, snapshot => {
+      snapshot.docChanges().forEach(change => {
+        if (change.type === "added") {
+          const docData = change.doc.data() as DocumentData
+          const id = change.doc.id
+          if (!alertsRef.has(id)) {
+            alertsRef.add(id)
+
+            const timestamp =
+              typeof docData.timestamp === "string"
+                ? docData.timestamp
+                : docData.timestamp?.toDate?.().toISOString() || new Date().toISOString()
+
+            const alert: RealtimeAlert = {
+              id,
+              camera_id: docData.camera_id,
+              confidence: docData.confidence,
+              image_url: docData.image_url,
+              summary: docData.summary,
+              timestamp,
+              weapon_type: docData.weapon_type,
+              bbox: docData.bbox
+            }
+
+            // Update dashboard list
+            setAlerts(prev => [{ ...alert, primary_type: alert.summary, final_score: alert.confidence ?? 0, location: { name: "Unknown" }, status: "active", created_at: new Date(alert.timestamp), evidence: [{ source: "Realtime" }], recommended_action: "Investigate immediately" }, ...prev])
+
+            // Show toast popup
+            toast.custom((t: Toast) => (
+              <div className="bg-red-600 text-white p-3 rounded-lg shadow-md flex items-center gap-3">
+                <img src={alert.image_url} alt="alert" className="w-12 h-12 object-cover rounded"/>
+                <div>
+                  <p className="font-semibold">{alert.summary}</p>
+                  <p className="text-xs">{alert.weapon_type?.toUpperCase() || "ALERT"} detected</p>
+                  <p className="text-xs text-gray-200">{new Date(alert.timestamp).toLocaleTimeString()}</p>
+                </div>
+              </div>
+            ), { duration: 5000 })
+          }
+        }
+      })
+    })
+    return () => unsubscribe()
+  }, [])
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-900 to-slate-900">
@@ -81,7 +146,9 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950">
-      {/* Header */}
+      <Toaster position="top-right" reverseOrder={false} />
+      {/* ... rest of your existing dashboard code ... */}
+      {/* Header, Summary Cards, Severity Grid, Recent Alerts remain unchanged */}
       <header className="border-b border-indigo-500/20 bg-slate-900/80 backdrop-blur-xl shadow-2xl">
         <div className="max-w-7xl mx-auto px-6 py-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
           <div className="flex items-center gap-4">
@@ -104,12 +171,7 @@ export default function Home() {
 
         {/* Navigation */}
         <div className="max-w-7xl mx-auto px-6 mt-4 flex gap-2 flex-wrap">
-          {[
-            { label: "Dashboard", href: "/dashboard" },
-            { label: "Crime", href: "/dashboard/crimes" },
-            { label: "Fraud", href: "/dashboard/fraud" },
-            { label: "Weather", href: "/dashboard/weather" }
-          ].map(btn => (
+          {[{ label: "Dashboard", href: "/dashboard" }, { label: "Crime", href: "/dashboard/crimes" }, { label: "Fraud", href: "/dashboard/fraud" }, { label: "Weather", href: "/dashboard/weather" }].map(btn => (
             <Link key={btn.href} href={btn.href} className="px-3 py-2 rounded-lg bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 text-sm hover:bg-indigo-600/40 hover:border-indigo-500/70 transition">
               {btn.label}
             </Link>
